@@ -1,6 +1,6 @@
 const http = require('http');
-const https = require('https');
-const url = require('url');
+const fs = require('fs');
+const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 
@@ -27,11 +27,11 @@ const server = http.createServer(async (req, res) => {
       body += chunk.toString();
     });
 
-    req.on('end', async () => {
+    req.on('end', () => {
       try {
         console.log("[BODY]", body);
 
-        // Parse key_path from POST body (form-data format)
+        // Parse key_path from POST body
         let keyPath = "1.lua";
         const match = body.match(/key_path=([^&]+)/);
         if (match) {
@@ -53,42 +53,29 @@ const server = http.createServer(async (req, res) => {
           return res.end("ERROR: File number 1-8 only");
         }
 
-        // Fetch from GitHub
-        const GITHUB_USERNAME = "roxzg56"; // ⭐ तुम्हारा username
-        const githubUrl = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/my-lua-scripts/main/scripts/${fileNumber}.lua`;
+        // Read file from scripts folder
+        const filePath = path.join(__dirname, 'scripts', `${fileNumber}.lua`);
+        
+        console.log("[READ FILE]", filePath);
 
-        console.log("[FETCH]", githubUrl);
-
-        https.get(githubUrl, (ghRes) => {
-          if (ghRes.statusCode !== 200) {
+        fs.readFile(filePath, 'utf8', (err, data) => {
+          if (err) {
+            console.error("[FILE ERROR]", err);
             res.writeHead(404, corsHeaders);
             return res.end(`ERROR: Script ${fileNumber} not found`);
           }
 
-          let luaCode = '';
+          let luaCode = data.replace(/\r\n/g, '\n').trim();
 
-          ghRes.on('data', chunk => {
-            luaCode += chunk.toString();
-          });
+          // Ensure > 50 bytes
+          if (luaCode.length < 51) {
+            luaCode = luaCode + "\n-- Padding\n".repeat((51 - luaCode.length) / 10);
+          }
 
-          ghRes.on('end', () => {
-            luaCode = luaCode.replace(/\r\n/g, '\n').trim();
+          console.log("[SUCCESS]", luaCode.length, "bytes");
 
-            // Ensure > 50 bytes (Cloudflare requirement)
-            if (luaCode.length < 51) {
-              luaCode = luaCode + "\n-- Padding\n".repeat((51 - luaCode.length) / 10);
-            }
-
-            console.log("[SUCCESS]", luaCode.length, "bytes");
-
-            res.writeHead(200, corsHeaders);
-            res.end(luaCode);
-          });
-
-        }).on('error', (err) => {
-          console.error("[FETCH ERROR]", err);
-          res.writeHead(500, corsHeaders);
-          res.end(`ERROR: ${err.message}`);
+          res.writeHead(200, corsHeaders);
+          res.end(luaCode);
         });
 
       } catch (error) {
